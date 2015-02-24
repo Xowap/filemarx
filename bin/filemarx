@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 
 from os import listdir
-from os.path import isdir, join
+from os.path import isdir, join, exists
 import json
 import jsonschema
 import argparse
+import time
 
 
 def dir_to_json(path):
@@ -48,22 +49,61 @@ def validate(tree, schema):
         yield reconstruct_path(tree, error.path), error.message
 
 
+def filter_errors(state, timeout, errors, run_time):
+    for path, message in errors:
+        if (path in state and state[path] + timeout < run_time) or (path not in state):
+            yield path, message
+
+
+def reconstruct_state(state, timeout, errors, run_time):
+    new_state = {}
+
+    for path, message in errors:
+        if path in state:
+            if state[path] + timeout < run_time:
+                last_time = run_time
+            else:
+                last_time = state[path]
+        else:
+            last_time = run_time
+
+        new_state[path] = last_time
+
+    return new_state
+
+
 def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('schema', help='The JSON schema to be checked')
     parser.add_argument('path', help='Make sure that the tree under this path is conform to the '
                                      'specified JSON schema')
+    parser.add_argument('-t', '--timeout', help='If a warning is older than this timeout, it is '
+                                                'thrown again (default: 0)', type=int, default=0)
+    parser.add_argument('-s', '--state-file', help='Store warnings state in this file')
 
     args = parser.parse_args()
 
     tree = dir_to_json(args.path)
+
     with open(args.schema, 'r', encoding='utf-8') as f:
         schema = json.load(f)
 
-    for path, message in validate(tree, schema):
+    if args.state_file is not None and exists(args.state_file):
+        with open(args.state_file, 'r', encoding='utf-8') as f:
+            state = json.load(f)
+    else:
+        state = {}
+
+    run_time = time.time()
+    errors = list(validate(tree, schema))
+
+    for path, message in filter_errors(state, args.timeout, errors, run_time):
         print('---> {}: {}'.format(path, message))
 
+    if args.state_file is not None:
+        with open(args.state_file, 'w', encoding='utf-8') as f:
+            json.dump(reconstruct_state(state, args.timeout, errors, run_time), f)
 
 if __name__ == '__main__':
     main()
