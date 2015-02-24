@@ -1,0 +1,88 @@
+{
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "definitions": {
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^(\\.?[a-zA-Z0-9\\-_ ]+\\.[a-z]+|\\.(DS_Store|properties))$"
+      }
+    },
+    "empty_files": {
+      "type": "array",
+      "items": {
+        "pattern": "^\\.(DS_Store|properties)$"
+      }
+    },
+    "dirs": {
+      "type": "object",
+      "properties": {
+        "files": {
+          "$ref": "#/definitions/files"
+        },
+        "dirs": {
+          "type": "object",
+          "patternProperties": {
+            "^[a-zA-Z0-9\\-_ ]+$": {
+              "$ref": "#/definitions/dirs"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    "root_dir": {
+      "type": "object",
+      "properties": {
+        "files": {
+          "$ref": "#/definitions/empty_files"
+        },
+        "dirs": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/page_dir"
+          }
+        }
+      }
+    },
+    "page_dir": {
+      "type": "object",
+      "properties": {
+        "files": {
+          "$ref": "#/definitions/empty_files"
+        },
+        "dirs": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/component_dir"
+          }
+        }
+      }
+    },
+    "component_dir": {
+      "type": "object",
+      "properties": {
+        "files": {
+          "$ref": "#/definitions/empty_files"
+        },
+        "dirs": {
+          "type": "object",
+          "patternProperties": {
+            "^(v[0-9]+|wip|latest)$": {
+              "$ref": "#/definitions/dirs"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "$ref": "#/definitions/dirs"
+    },
+    {
+      "$ref": "#/definitions/root_dir"
+    }
+  ]
+}

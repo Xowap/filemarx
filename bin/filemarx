@@ -1,0 +1,69 @@
+#!/usr/bin/env python3
+
+from os import listdir
+from os.path import isdir, join
+import json
+import jsonschema
+import argparse
+
+
+def dir_to_json(path):
+    info = {
+        'dirs': {},
+        'files': [],
+    }
+
+    for file in listdir(path):
+        sub_path = join(path, file)
+        if isdir(sub_path):
+            info['dirs'][file] = dir_to_json(sub_path)
+        else:
+            info['files'].append(file)
+
+    return info
+
+
+def reconstruct_path(tree, path):
+    output = []
+    ptr = tree
+
+    for kind, key in zip(*(iter(path),) * 2):
+        if kind == 'dirs':
+            output.append(key)
+            ptr = ptr[kind][key]
+        else:
+            output.append(ptr['files'][key])
+
+    if len(output):
+        return join(*output)
+    else:
+        return ''
+
+
+def validate(tree, schema):
+    validator = jsonschema.Draft4Validator(schema)
+    errors = sorted(validator.iter_errors(tree), key=lambda e: e.path)
+
+    for error in errors:
+        yield reconstruct_path(tree, error.path), error.message
+
+
+def main():
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('schema', help='The JSON schema to be checked')
+    parser.add_argument('path', help='Make sure that the tree under this path is conform to the '
+                                     'specified JSON schema')
+
+    args = parser.parse_args()
+
+    tree = dir_to_json(args.path)
+    with open(args.schema, 'r', encoding='utf-8') as f:
+        schema = json.load(f)
+
+    for path, message in validate(tree, schema):
+        print('---> {}: {}'.format(path, message))
+
+
+if __name__ == '__main__':
+    main()
