@@ -40,7 +40,14 @@
         "dirs": {
           "type": "object",
           "additionalProperties": {
-            "$ref": "#/definitions/page_dir"
+            "anyOf": [
+              {
+                "$ref": "#/definitions/page_dir"
+              },
+              {
+                "$ref": "#/definitions/component_dir"
+              }
+            ]
           }
         }
       }
@@ -68,7 +75,7 @@
         "dirs": {
           "type": "object",
           "patternProperties": {
-            "^(v[0-9]+|wip|latest)$": {
+            "^(v[0-9]+|PSD|integration)$": {
               "$ref": "#/definitions/dirs"
             }
           },
