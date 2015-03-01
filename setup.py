@@ -13,7 +13,7 @@ chdir(normpath(join(abspath(__file__), pardir)))
 
 setup(
     name='filemarx',
-    version='0.0.0',
+    version='0.1.0',
     packages=[],
     scripts=['bin/filemarx'],
     license='WTFPL',
