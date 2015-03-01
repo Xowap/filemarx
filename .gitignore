@@ -1,3 +1,5 @@
 *.swp
 *.un~
 .idea
+*.egg-info
+/dist
