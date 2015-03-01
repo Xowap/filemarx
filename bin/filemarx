@@ -1,0 +1,166 @@
+#!/usr/bin/env python3
+
+from os import listdir
+from os.path import isdir, join, exists
+import json
+from tempfile import NamedTemporaryFile
+from datetime import datetime
+import jsonschema
+import argparse
+import time
+import sys
+from slacker import Slacker
+
+
+SLACK_USERNAME = 'filemarx'
+SLACK_EMOJI = ':filemarx:'
+
+
+class SlackWriter(object):
+    def __init__(self, slack):
+        self.slack = slack
+
+    def identify_channels(self, channels):
+        id_map = {'#' + x['name']: x['id'] for x in self.slack.channels.list().body['channels']}
+
+        for channel in channels:
+            if channel in id_map:
+                yield id_map[channel]
+
+    def report(self, channels, title, content):
+        title = '{} File Issues {}'.format(title, datetime.now().isoformat(' '))
+
+        for channel in channels:
+            self.slack.chat.post_message(
+                channel,
+                'Looks like some files are ready for the gulag',
+                username=SLACK_USERNAME,
+                icon_emoji=SLACK_EMOJI,
+            )
+
+        with NamedTemporaryFile('w+') as f:
+            f.write(content)
+            f.flush()
+            self.slack.files.upload(
+                f.name,
+                filetype='text',
+                filename=title,
+                title=title,
+                channels=list(self.identify_channels(channels)),
+            )
+
+
+def dir_to_json(path):
+    info = {
+        'dirs': {},
+        'files': [],
+    }
+
+    for file in listdir(path):
+        sub_path = join(path, file)
+        if isdir(sub_path):
+            info['dirs'][file] = dir_to_json(sub_path)
+        else:
+            info['files'].append(file)
+
+    return info
+
+
+def reconstruct_path(tree, path):
+    output = []
+    ptr = tree
+
+    for kind, key in zip(*(iter(path),) * 2):
+        if kind == 'dirs':
+            output.append(key)
+            ptr = ptr[kind][key]
+        else:
+            output.append(ptr['files'][key])
+
+    if len(output):
+        return join(*output)
+    else:
+        return ''
+
+
+def validate(tree, schema):
+    validator = jsonschema.Draft4Validator(schema)
+    errors = sorted(validator.iter_errors(tree), key=lambda e: e.path)
+
+    for error in errors:
+        yield reconstruct_path(tree, error.path), error.message
+
+
+def filter_errors(state, timeout, errors, run_time):
+    for path, message in errors:
+        if (path in state and state[path] + timeout < run_time) or (path not in state):
+            yield path, message
+
+
+def reconstruct_state(state, timeout, errors, run_time):
+    new_state = {}
+
+    for path, message in errors:
+        if path in state:
+            if state[path] + timeout < run_time:
+                last_time = run_time
+            else:
+                last_time = state[path]
+        else:
+            last_time = run_time
+
+        new_state[path] = last_time
+
+    return new_state
+
+
+def errors_to_message(errors):
+    return '\n'.join('[ {} ] --> {}'.format(x, y) for x, y in errors) + '\n'
+
+
+def main():
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('title', help='Title')
+    parser.add_argument('schema', help='The JSON schema to be checked')
+    parser.add_argument('path', help='Make sure that the tree under this path is conform to the '
+                                     'specified JSON schema')
+    parser.add_argument('-t', '--timeout', help='If a warning is older than this timeout, it is '
+                                                'thrown again (default: 0)', type=int, default=0)
+    parser.add_argument('-s', '--state-file', help='Store warnings state in this file')
+    parser.add_argument('-q', '--quiet', help='Be quiet', default=False, action='store_true')
+    parser.add_argument('--slack-token', help='Post to slack using this API token')
+    parser.add_argument('--slack-channels', help='Post to this channel')
+
+    args = parser.parse_args()
+
+    tree = dir_to_json(args.path)
+
+    with open(args.schema, 'r', encoding='utf-8') as f:
+        schema = json.load(f)
+
+    if args.state_file is not None and exists(args.state_file):
+        with open(args.state_file, 'r', encoding='utf-8') as f:
+            state = json.load(f)
+    else:
+        state = {}
+
+    run_time = time.time()
+    errors = list(validate(tree, schema))
+    filtered_errors = list(filter_errors(state, args.timeout, errors, run_time))
+    message = errors_to_message(filtered_errors)
+
+    if len(filtered_errors) and not args.quiet:
+        sys.stdout.write(message)
+
+    if args.state_file is not None:
+        with open(args.state_file, 'w', encoding='utf-8') as f:
+            json.dump(reconstruct_state(state, args.timeout, errors, run_time), f)
+
+    if len(filtered_errors) and args.slack_channels is not None and args.slack_token is not None:
+        slack = SlackWriter(Slacker(args.slack_token))
+        slack.report(args.slack_channels.split(','), args.title, message)
+
+
+if __name__ == '__main__':
+    main()
